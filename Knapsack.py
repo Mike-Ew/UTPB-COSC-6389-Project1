@@ -1,6 +1,5 @@
 import math
 import random
-import pandas as pd
 import tkinter as tk
 from tkinter import *
 import threading
@@ -14,10 +13,10 @@ screen_padding = 25
 item_padding = 5
 stroke_width = 5
 
-num_generations = 1000
-pop_size = 50
+number_of_generations = 1000
+population_size = 50
 elitism_count = 2
-mutation_rate = 0.1
+mutation_rate = 0.01  # Mutation changed
 
 sleep_time = 0.1
 
@@ -237,9 +236,10 @@ class UI(tk.Tk):
             font=("Arial", 18),
         )
 
+    # Main Code
     def run(self):
-        global pop_size
-        global num_generations
+        global population_size
+        global number_of_generations
 
         def gene_sum(genome):
             total = 0
@@ -254,7 +254,7 @@ class UI(tk.Tk):
         def get_population(last_pop=None, fitnesses=None):
             population = []
             if last_pop is None:
-                for g in range(pop_size):
+                for g in range(population_size):
                     genome = []
                     for bit in range(num_items):
                         genome.append(random.random() < frac_target)
@@ -278,9 +278,9 @@ class UI(tk.Tk):
                             weights.append(min_fitness / fitness(parent))
 
                     def get_by_weight():
-                        idx = random.randint(0, pop_size - 1)
+                        idx = random.randint(0, population_size - 1)
                         while random.random() < weights[idx]:
-                            idx = random.randint(0, pop_size - 1)
+                            idx = random.randint(0, population_size - 1)
                         return last_pop[idx]
 
                     return get_by_weight(), get_by_weight()
@@ -310,7 +310,7 @@ class UI(tk.Tk):
                     return g_out
 
                 # fill generation with new individuals
-                while len(population) < pop_size:
+                while len(population) < population_size:
                     # select two random parents by weighted selection
                     # note no guarantee of uniqueness - could get the same parent twice
                     parents = select_parents(fitnesses[0])
@@ -325,7 +325,7 @@ class UI(tk.Tk):
                 return population
 
         def generation_step(generation=0, pop=None):
-            if generation >= num_generations:
+            if generation >= number_of_generations:
                 return  # Stop the process after the set number of generations
 
             if pop is None:
