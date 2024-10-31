@@ -13,10 +13,10 @@ screen_padding = 25
 item_padding = 5
 stroke_width = 5
 
-number_of_generations = 1000
-population_size = 50
+num_generations = 1000
+pop_size = 50
 elitism_count = 2
-mutation_rate = 0.01  # Mutation changed
+mutation_rate = 0.01  # Lower mutation rate for per-gene mutation
 
 sleep_time = 0.1
 
@@ -211,7 +211,7 @@ class UI(tk.Tk):
         w = (self.width - screen_padding) / 8 - screen_padding
         h = self.height / 2 - screen_padding
         # print(f'{item_sum} / {target} * {h} = {item_sum/target} * {h} = {item_sum/target*h}')
-        h *= item_sum / target
+        h *= min(item_sum / target, 1)  # Cap the height at the target
         self.canvas.create_rectangle(x, y, x + w, y + h, fill="black")
         self.canvas.create_text(
             x + w // 2,
@@ -236,111 +236,91 @@ class UI(tk.Tk):
             font=("Arial", 18),
         )
 
-    # Main Code
     def run(self):
-        global population_size
-        global number_of_generations
+        global pop_size
+        global num_generations
 
         def gene_sum(genome):
             total = 0
-            for i in range(len(genome) - 1):
+            for i in range(len(genome)):
                 if genome[i]:
                     total += self.items_list[i].value
             return total
 
         def fitness(genome):
-            return abs(gene_sum(genome) - self.target)
+            total = gene_sum(genome)
+            if total > self.target:
+                return total - self.target + 1000  # Penalize exceeding target
+            else:
+                return self.target - total  # We want to minimize this
 
-        def get_population(last_pop=None, fitnesses=None):
+        def select_parents(population, tournament_size=3):
+            parents = []
+            for _ in range(2):
+                tournament = random.sample(population, tournament_size)
+                tournament_fitness = [
+                    (genome, fitness(genome)) for genome in tournament
+                ]
+                winner = min(tournament_fitness, key=lambda x: x[1])[0]
+                parents.append(winner)
+            return parents[0], parents[1]
+
+        def crossover(parent1, parent2):
+            length = len(parent1)
+            child = []
+            for i in range(length):
+                if random.random() < 0.5:
+                    child.append(parent1[i])
+                else:
+                    child.append(parent2[i])
+            return child
+
+        def mutate(genome, mutation_rate):
+            genome_out = genome.copy()
+            for i in range(len(genome_out)):
+                if random.random() < mutation_rate:
+                    genome_out[i] = not genome_out[i]
+            return genome_out
+
+        def get_population(last_pop=None):
             population = []
             if last_pop is None:
-                for g in range(population_size):
-                    genome = []
-                    for bit in range(num_items):
-                        genome.append(random.random() < frac_target)
+                # Generate initial population
+                for _ in range(pop_size):
+                    genome = [random.random() < frac_target for _ in range(num_items)]
                     population.append(genome)
-                return population
             else:
-                # elitism
-                elites = []
-                for e in range(elitism_count):
-                    elites.append(fitnesses[e])
-                for e in last_pop:
-                    if fitness(e) in elites:
-                        population.append(e)
-
-                def select_parents(min_fitness):
-                    weights = []
-                    for parent in last_pop:
-                        if fitness(parent) == 0.0:
-                            weights.append(1.0)
-                        else:
-                            weights.append(min_fitness / fitness(parent))
-
-                    def get_by_weight():
-                        idx = random.randint(0, population_size - 1)
-                        while random.random() < weights[idx]:
-                            idx = random.randint(0, population_size - 1)
-                        return last_pop[idx]
-
-                    return get_by_weight(), get_by_weight()
-
-                def crossover(parent1, parent2):
-                    length = len(parent1)
-                    x = random.randint(0, length // 2)
-                    y = x + length // 2
-                    g_out = []
-                    for i in range(length):
-                        if x < i <= y:
-                            g_out.append(parent2[i])
-                        else:
-                            g_out.append(parent1[i])
-                    if len(g_out) < num_items:
-                        print("Error!")
-                    return g_out
-
-                def mutate(g_in):
-                    x = random.randint(0, len(g_in) - 1)
-                    g_out = []
-                    for i in range(len(g_in)):
-                        if i == x:
-                            g_out.append(not g_in[i])
-                        else:
-                            g_out.append(g_in[i])
-                    return g_out
-
-                # fill generation with new individuals
-                while len(population) < population_size:
-                    # select two random parents by weighted selection
-                    # note no guarantee of uniqueness - could get the same parent twice
-                    parents = select_parents(fitnesses[0])
-                    # perform crossover to generate new individual
-                    baby = crossover(parents[0], parents[1])
-                    # potentially perform mutation
-                    if random.random() < mutation_rate:
-                        baby = mutate(baby)
-                    # add to next generation
-                    population.append(baby)
-
-                return population
+                # Implement elitism: carry over best individuals
+                sorted_pop = sorted(last_pop, key=lambda genome: fitness(genome))
+                elites = sorted_pop[:elitism_count]
+                population.extend(elites)
+                # Generate rest of the population
+                while len(population) < pop_size:
+                    # Select parents using tournament selection
+                    parent1, parent2 = select_parents(last_pop)
+                    # Generate child via crossover
+                    child = crossover(parent1, parent2)
+                    # Mutate child
+                    child = mutate(child, mutation_rate)
+                    # Add child to new population
+                    population.append(child)
+            return population
 
         def generation_step(generation=0, pop=None):
-            if generation >= number_of_generations:
+            if generation >= num_generations:
                 return  # Stop the process after the set number of generations
 
             if pop is None:
                 pop = get_population()
+            else:
+                pop = get_population(pop)
 
-            fitnesses = []
-            best_of_gen = None
-            min_fitness = 9999
-            for genome in pop:
-                fit = fitness(genome)
-                if fit < min_fitness:
-                    best_of_gen = genome
-                    min_fitness = fit
-                fitnesses.append(fit)
-            fitnesses.sort()
+            # Evaluate fitnesses
+            fitnesses = [(genome, fitness(genome)) for genome in pop]
+            fitnesses.sort(key=lambda x: x[1])
+
+            best_of_gen = fitnesses[0][0]
+            min_fitness = fitnesses[0][1]
 
             print(f"Best fitness of generation {generation}: {min_fitness}")
             print(best_of_gen)
@@ -353,12 +333,12 @@ class UI(tk.Tk):
             self.after(0, self.draw_genome, best_of_gen, generation)
 
             # Schedule the next generation step after a delay, unless we're at the global optimum (fitness == 0)
-            if fitnesses[0] != 0:
+            if min_fitness != 0:
                 self.after(
                     int(sleep_time * 1000),
                     generation_step,
                     generation + 1,
-                    get_population(pop, fitnesses),
+                    pop,
                 )
 
         # Start the evolutionary process
