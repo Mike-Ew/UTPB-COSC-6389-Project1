@@ -57,16 +57,27 @@ class UI(tk.Tk):
 
         self.canvas = Canvas(self)
         self.canvas.place(x=0, y=0, width=width, height=height)
-        w = width - padding
-        h = height - padding * 2
+        self.w = width - padding
+        self.h = height - padding * 2
 
         self.nodes_list = []
         self.edges_list = []
         self.edges_set = set()
 
+        self.solver_method = "greedy"  # Default solver method
+        self.iteration_label = tk.Label(
+            self, text="Iterations: 0", font=("Helvetica", 16)
+        )
+        self.iteration_label.place(x=10, y=10)
+
         def add_node():
-            x = random.randint(padding, w)
-            y = random.randint(padding, h)
+            # Arrange nodes in a circular layout
+            angle = (2 * math.pi / num_nodes) * len(self.nodes_list)
+            radius = min(self.w, self.h) / 2 - padding
+            center_x = self.w / 2 + padding / 2
+            center_y = self.h / 2 + padding / 2
+            x = center_x + radius * math.cos(angle)
+            y = center_y + radius * math.sin(angle)
             node = Node(x, y)
             self.nodes_list.append(node)
 
@@ -91,6 +102,7 @@ class UI(tk.Tk):
             self.nodes_list.clear()
             self.edges_list.clear()
             self.edges_set.clear()
+            self.iteration_label.config(text="Iterations: 0")
             for _ in range(num_nodes):
                 add_node()
             for _ in range(num_edges):
@@ -106,6 +118,17 @@ class UI(tk.Tk):
 
         def clear_canvas():
             self.canvas.delete("all")
+
+        def set_solver(method):
+            self.solver_method = method
+
+        def solve():
+            self.iteration_label.config(text="Iterations: 0")
+            if self.solver_method == "greedy":
+                color_graph()
+            elif self.solver_method == "genetic":
+                genetic_algorithm()
+            draw_graph()
 
         def color_graph():
             colors = [
@@ -123,6 +146,7 @@ class UI(tk.Tk):
                 "olive",
                 "maroon",
             ]
+            iteration = 1  # Since greedy algorithm runs once
             for node in self.nodes_list:
                 used_colors = set(
                     neighbor.color for neighbor in node.neighbors if neighbor.color
@@ -133,10 +157,103 @@ class UI(tk.Tk):
                         break
                 else:
                     node.color = "black"  # Default color if no other color is available
+            self.iteration_label.config(text=f"Iterations: {iteration}")
 
-        def solve():
-            color_graph()
-            draw_graph()
+        def genetic_algorithm():
+            # Parameters
+            population_size = 100
+            mutation_rate = 0.1
+            max_iterations = 1000
+            num_colors = 4  # Number of colors to use
+            colors = ["red", "green", "blue", "yellow"]
+
+            # Initialize population
+            population = []
+            for _ in range(population_size):
+                individual = [random.choice(range(num_colors)) for _ in self.nodes_list]
+                population.append(individual)
+
+            best_individual = None
+            best_fitness = float("inf")
+            iteration = 0
+
+            while iteration < max_iterations and best_fitness > 0:
+                iteration += 1
+                # Evaluate fitness
+                fitness_scores = []
+                for individual in population:
+                    fitness = fitness_function(individual)
+                    fitness_scores.append((fitness, individual))
+                    if fitness < best_fitness:
+                        best_fitness = fitness
+                        best_individual = individual
+
+                # Sort population by fitness
+                fitness_scores.sort(key=lambda x: x[0])
+                population = [ind for (_, ind) in fitness_scores]
+
+                # Selection
+                selected = selection(population, fitness_scores)
+
+                # Crossover
+                offspring = crossover(selected)
+
+                # Mutation
+                offspring = mutation(offspring, mutation_rate, num_colors)
+
+                # Replace population
+                population = offspring
+
+                # Update iteration label
+                self.iteration_label.config(text=f"Iterations: {iteration}")
+                self.update_idletasks()
+
+            # Assign colors to nodes
+            for idx, node in enumerate(self.nodes_list):
+                node.color = colors[best_individual[idx]]
+
+        def fitness_function(individual):
+            conflicts = 0
+            for edge in self.edges_list:
+                idx_a = self.nodes_list.index(edge.node_a)
+                idx_b = self.nodes_list.index(edge.node_b)
+                if individual[idx_a] == individual[idx_b]:
+                    conflicts += 1
+            return conflicts
+
+        def selection(population, fitness_scores):
+            selected = []
+            tournament_size = 5
+            for _ in range(len(population)):
+                tournament = random.sample(fitness_scores, tournament_size)
+                tournament.sort(key=lambda x: x[0])
+                selected.append(
+                    tournament[0][1]
+                )  # Select the individual with best fitness
+            return selected
+
+        def crossover(parents):
+            offspring = []
+            for i in range(0, len(parents), 2):
+                parent1 = parents[i]
+                if i + 1 < len(parents):
+                    parent2 = parents[i + 1]
+                else:
+                    parent2 = parents[0]  # If odd number, mate last with first
+                # Perform single-point crossover
+                crossover_point = random.randint(1, len(parent1) - 1)
+                child1 = parent1[:crossover_point] + parent2[crossover_point:]
+                child2 = parent2[:crossover_point] + parent1[crossover_point:]
+                offspring.append(child1)
+                offspring.append(child2)
+            return offspring
+
+        def mutation(offspring, mutation_rate, num_colors):
+            for individual in offspring:
+                for idx in range(len(individual)):
+                    if random.random() < mutation_rate:
+                        individual[idx] = random.choice(range(num_colors))
+            return offspring
 
         # Create menu
         menu_bar = Menu(self)
@@ -146,6 +263,19 @@ class UI(tk.Tk):
         menu_bar.add_cascade(menu=menu_gc, label="Graph Coloring", underline=0)
         menu_gc.add_command(label="Generate", command=generate_graph, underline=0)
         menu_gc.add_command(label="Solve", command=solve, underline=0)
+
+        menu_solver = Menu(menu_bar)
+        menu_bar.add_cascade(menu=menu_solver, label="Solver", underline=0)
+        menu_solver.add_command(
+            label="Use Greedy Algorithm",
+            command=lambda: set_solver("greedy"),
+            underline=0,
+        )
+        menu_solver.add_command(
+            label="Use Genetic Algorithm",
+            command=lambda: set_solver("genetic"),
+            underline=0,
+        )
 
         self.mainloop()
 
