@@ -1,5 +1,6 @@
 import math
 import random
+import numpy as np
 import tkinter as tk
 from tkinter import *
 import threading
@@ -13,12 +14,12 @@ screen_padding = 25
 item_padding = 5
 stroke_width = 5
 
-num_generations = 1000
-pop_size = 50
-elitism_count = 2
-mutation_rate = 0.01  # Lower mutation rate for per-gene mutation
+num_generations = 2000  # Increased number of generations
+pop_size = 100  # Population size
+elitism_count = 5  # Number of elites to carry over
+mutation_rate = 0.05  # Increased mutation rate
 
-sleep_time = 0.1
+sleep_time = 0.01  # Reduced sleep time for faster iterations
 
 
 def random_rgb_color():
@@ -75,109 +76,97 @@ class Item:
 class UI(tk.Tk):
     def __init__(self):
         tk.Tk.__init__(self)
-        # Set the title of the window
         self.title("Knapsack")
-        # Hide the minimize/maximize/close decorations at the top of the window frame
-        #   (effectively making it act like a full-screen application)
         self.option_add("*tearOff", FALSE)
-        # Get the screen width and height
         self.width, self.height = self.winfo_screenwidth(), self.winfo_screenheight()
-        # Set the window width and height to fill the screen
         self.geometry("%dx%d+0+0" % (self.width, self.height))
-        # Set the window content to fill the width * height area
         self.state("zoomed")
 
         self.canvas = Canvas(self)
         self.canvas.place(x=0, y=0, width=self.width, height=self.height)
 
         self.items_list = []
+        self.item_values = None  # Will store item values as a NumPy array
 
-        # We create a standard banner menu bar and attach it to the window
+        # Create a label to display the current generation and best fitness
+        self.status_label = tk.Label(self, text="", font=("Arial", 16))
+        self.status_label.place(x=screen_padding, y=screen_padding)
+
+        # Create menu
         menu_bar = Menu(self)
         self["menu"] = menu_bar
 
-        # We have to individually create the "File", "Edit", etc. cascade menus, and this is the first
         menu_K = Menu(menu_bar)
-        # The underline=0 parameter doesn't actually do anything by itself,
-        #   but if you also create an "accelerator" so that users can use the standard alt+key shortcuts
-        #   for the menu, it will underline the appropriate key to indicate the shortcut
         menu_bar.add_cascade(menu=menu_K, label="Knapsack", underline=0)
 
         def generate():
             self.generate_knapsack()
             self.draw_items()
 
-        # The add_command function adds an item to a menu, as opposed to add_cascade which adds a sub-menu
-        # Note that we use command=generate without the () - we're telling it which function to call,
-        #   not actually calling the function as part of the add_command
         menu_K.add_command(label="Generate", command=generate, underline=0)
 
         self.target = 0
 
         def set_target():
-            target_set = []
-            for x in range(int(num_items * frac_target)):
-                item = self.items_list[random.randint(0, len(self.items_list) - 1)]
-                while item in target_set:
-                    item = self.items_list[random.randint(0, len(self.items_list) - 1)]
-                target_set.append(item)
-            total = 0
-            for item in target_set:
-                total += item.value
+            if not self.items_list:
+                tk.messagebox.showerror("Error", "Please generate items first.")
+                return
+            target_set = random.sample(self.items_list, int(num_items * frac_target))
+            total = sum(item.value for item in target_set)
             self.target = total
             self.draw_target()
 
         menu_K.add_command(label="Get Target", command=set_target, underline=0)
 
         def start_thread():
+            if not self.items_list or self.target == 0:
+                tk.messagebox.showerror(
+                    "Error", "Please generate items and set target first."
+                )
+                return
             thread = threading.Thread(target=self.run, args=())
             thread.start()
 
         menu_K.add_command(label="Run", command=start_thread, underline=0)
 
-        # We have to call self.mainloop() in our constructor (__init__) to start the UI loop and display the window
         self.mainloop()
 
     def get_rand_item(self):
-        i1 = Item()
-        for i2 in self.items_list:
-            if i1.value == i2.value:
-                return None
-        return i1
+        while True:
+            i1 = Item()
+            if i1.value not in [item.value for item in self.items_list]:
+                return i1
 
     def add_item(self):
         item = self.get_rand_item()
-        while item is None:
-            item = self.get_rand_item()
         self.items_list.append(item)
 
     def generate_knapsack(self):
-        for i in range(num_items):
+        self.canvas.delete("all")
+        self.items_list.clear()
+        self.target = 0
+        self.status_label.config(text="")
+        for _ in range(num_items):
             self.add_item()
 
-        item_max = 0
-        item_min = 9999
-        for item in self.items_list:
-            item_min = min(item_min, item.value)
-            item_max = max(item_max, item.value)
+        self.item_values = np.array([item.value for item in self.items_list])
+
+        item_max = self.item_values.max()
 
         w = self.width - screen_padding
         h = self.height - screen_padding
         num_rows = math.ceil(num_items / 6)
         row_w = w / 8 - item_padding
         row_h = (h - 200) / num_rows
-        # print(f'{w}, {h}, {num_rows}, {row_w}, {row_h}')
+
         for x in range(0, 6):
             for y in range(0, num_rows):
-                if x * num_rows + y >= num_items:
+                idx = x * num_rows + y
+                if idx >= num_items:
                     break
-                item = self.items_list[x * num_rows + y]
+                item = self.items_list[idx]
                 item_w = row_w / 2
                 item_h = max(item.value / item_max * row_h, 1)
-                # print(f'{screen_padding+x*row_w+x*item_padding},'
-                #      f'{screen_padding+y*row_h+y*item_padding},'
-                #      f'{item_w},'
-                #      f'{item_h}')
                 item.place(
                     screen_padding + x * row_w + x * item_padding,
                     screen_padding + y * row_h + y * item_padding,
@@ -201,150 +190,129 @@ class UI(tk.Tk):
         self.canvas.create_text(
             x + w // 2,
             y + h + screen_padding,
-            text=f"{self.target}",
+            text=f"Target: {self.target}",
             font=("Arial", 18),
         )
 
-    def draw_sum(self, item_sum, target):
+    def draw_sum(self, item_sum):
         x = (self.width - screen_padding) / 8 * 6
         y = screen_padding
         w = (self.width - screen_padding) / 8 - screen_padding
         h = self.height / 2 - screen_padding
-        # print(f'{item_sum} / {target} * {h} = {item_sum/target} * {h} = {item_sum/target*h}')
-        h *= min(item_sum / target, 1)  # Cap the height at the target
+        h *= min(item_sum / self.target, 1)  # Cap the height at the target
         self.canvas.create_rectangle(x, y, x + w, y + h, fill="black")
+        diff = item_sum - self.target
+        sign = "+" if diff > 0 else "-"
         self.canvas.create_text(
             x + w // 2,
             y + h + screen_padding,
-            text=f'{item_sum} ({"+" if item_sum>target else "-"}{abs(item_sum-target)})',
+            text=f"Sum: {item_sum} ({sign}{abs(diff)})",
             font=("Arial", 18),
         )
 
-    def draw_genome(self, genome, gen_num):
+    def draw_genome(self, genome):
         for i in range(num_items):
             item = self.items_list[i]
             active = genome[i]
             item.draw(self.canvas, active)
-        x = (self.width - screen_padding) / 8 * 6
-        y = screen_padding
-        w = (self.width - screen_padding) / 8 - screen_padding
-        h = self.height / 4 * 3
-        self.canvas.create_text(
-            x + w,
-            y + h + screen_padding * 2,
-            text=f"Generation {gen_num}",
-            font=("Arial", 18),
-        )
+        # Draw items again to ensure proper layering
+        # self.draw_items()
 
     def run(self):
-        global pop_size
-        global num_generations
+        def fitness(population):
+            total_values = np.dot(population, self.item_values)
+            fitness_scores = np.empty(pop_size)
+            over_target = total_values > self.target
+            # Apply severe penalty for exceeding the target
+            fitness_scores[over_target] = (
+                total_values[over_target] - self.target
+            ) + 1000
+            # Fitness is the difference to target for under-target solutions
+            fitness_scores[~over_target] = self.target - total_values[~over_target]
+            return fitness_scores
 
-        def gene_sum(genome):
-            total = 0
-            for i in range(len(genome)):
-                if genome[i]:
-                    total += self.items_list[i].value
-            return total
-
-        def fitness(genome):
-            total = gene_sum(genome)
-            if total > self.target:
-                return total - self.target + 1000  # Penalize exceeding target
-            else:
-                return self.target - total  # We want to minimize this
-
-        def select_parents(population, tournament_size=3):
+        def select_parents(population, fitness_scores, tournament_size=5):
             parents = []
             for _ in range(2):
-                tournament = random.sample(population, tournament_size)
-                tournament_fitness = [
-                    (genome, fitness(genome)) for genome in tournament
-                ]
-                winner = min(tournament_fitness, key=lambda x: x[1])[0]
+                participants_idx = np.random.choice(
+                    pop_size, tournament_size, replace=False
+                )
+                participants = population[participants_idx]
+                participants_fitness = fitness_scores[participants_idx]
+                winner_idx = np.argmin(participants_fitness)
+                winner = participants[winner_idx]
                 parents.append(winner)
             return parents[0], parents[1]
 
         def crossover(parent1, parent2):
-            length = len(parent1)
-            child = []
-            for i in range(length):
-                if random.random() < 0.5:
-                    child.append(parent1[i])
-                else:
-                    child.append(parent2[i])
+            crossover_point = np.random.randint(1, num_items - 1)
+            child = np.concatenate(
+                (parent1[:crossover_point], parent2[crossover_point:])
+            )
             return child
 
-        def mutate(genome, mutation_rate):
-            genome_out = genome.copy()
-            for i in range(len(genome_out)):
-                if random.random() < mutation_rate:
-                    genome_out[i] = not genome_out[i]
-            return genome_out
+        def mutate(genome):
+            mutation_indices = np.random.rand(num_items) < mutation_rate
+            genome[mutation_indices] = 1 - genome[mutation_indices]  # Flip bits
+            return genome
 
-        def get_population(last_pop=None):
-            population = []
-            if last_pop is None:
-                # Generate initial population
-                for _ in range(pop_size):
-                    genome = [random.random() < frac_target for _ in range(num_items)]
-                    population.append(genome)
-            else:
-                # Implement elitism: carry over best individuals
-                sorted_pop = sorted(last_pop, key=lambda genome: fitness(genome))
-                elites = sorted_pop[:elitism_count]
-                population.extend(elites)
-                # Generate rest of the population
-                while len(population) < pop_size:
-                    # Select parents using tournament selection
-                    parent1, parent2 = select_parents(last_pop)
-                    # Generate child via crossover
-                    child = crossover(parent1, parent2)
-                    # Mutate child
-                    child = mutate(child, mutation_rate)
-                    # Add child to new population
-                    population.append(child)
-            return population
+        # Initialize population
+        population = np.random.randint(2, size=(pop_size, num_items))
+        best_fitness = float("inf")
+        best_genome = None
 
-        def generation_step(generation=0, pop=None):
-            if generation >= num_generations:
-                return  # Stop the process after the set number of generations
+        for generation in range(num_generations):
+            fitness_scores = fitness(population)
+            min_fitness_idx = np.argmin(fitness_scores)
+            min_fitness = fitness_scores[min_fitness_idx]
+            best_genome_gen = population[min_fitness_idx]
 
-            if pop is None:
-                pop = get_population()
-            else:
-                pop = get_population(pop)
+            # Update best solution found
+            if min_fitness < best_fitness:
+                best_fitness = min_fitness
+                best_genome = best_genome_gen.copy()
 
-            # Evaluate fitnesses
-            fitnesses = [(genome, fitness(genome)) for genome in pop]
-            fitnesses.sort(key=lambda x: x[1])
-
-            best_of_gen = fitnesses[0][0]
-            min_fitness = fitnesses[0][1]
-
-            print(f"Best fitness of generation {generation}: {min_fitness}")
-            print(best_of_gen)
-            print()
-
-            # Schedule the UI updates in the main thread
+            # Update UI
             self.after(0, self.clear_canvas)
             self.after(0, self.draw_target)
-            self.after(0, self.draw_sum, gene_sum(best_of_gen), self.target)
-            self.after(0, self.draw_genome, best_of_gen, generation)
+            self.after(0, self.draw_sum, np.dot(best_genome, self.item_values))
+            self.after(0, self.draw_genome, best_genome)
+            self.status_label.config(
+                text=f"Generation: {generation}, Best Fitness: {best_fitness}"
+            )
+            self.update_idletasks()
 
-            # Schedule the next generation step after a delay, unless we're at the global optimum (fitness == 0)
-            if min_fitness != 0:
-                self.after(
-                    int(sleep_time * 1000),
-                    generation_step,
-                    generation + 1,
-                    pop,
-                )
+            if best_fitness == 0:
+                print("Optimal solution found!")
+                break
 
-        # Start the evolutionary process
-        generation_step()
+            # Elitism: keep the best genomes
+            sorted_indices = np.argsort(fitness_scores)
+            elites = population[sorted_indices[:elitism_count]]
+
+            # Generate new population
+            new_population = elites.copy()
+            while len(new_population) < pop_size:
+                parent1, parent2 = select_parents(population, fitness_scores)
+                child = crossover(parent1, parent2)
+                child = mutate(child)
+                new_population = np.vstack([new_population, child])
+
+            population = new_population[:pop_size]  # Ensure population size
+
+            # Sleep to control iteration speed
+            threading.Event().wait(sleep_time)
+
+        # Final update
+        self.after(0, self.clear_canvas)
+        self.after(0, self.draw_target)
+        self.after(0, self.draw_sum, np.dot(best_genome, self.item_values))
+        self.after(0, self.draw_genome, best_genome)
+        self.status_label.config(
+            text=f"Final Generation: {generation}, Best Fitness: {best_fitness}"
+        )
+        self.update_idletasks()
 
 
-# In python, we have this odd construct to catch the main thread and instantiate our Window class
 if __name__ == "__main__":
     UI()
